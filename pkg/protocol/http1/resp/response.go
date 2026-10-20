@@ -167,9 +167,17 @@ func (c *clientRespStream) ForceClose() (err error) {
 // NOTE:
 // * Since Close() will put it back to pool, MUST ensure it only be called when no longer use.
 // * MUST NOT call Close() and `Read()` concurrently to avoid race issue
+// * Close() is idempotent: it only takes effect on the first call, subsequent calls are no-ops,
+// which guarantees the object is never put back to the pool twice.
 func (c *clientRespStream) Close() (err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	// Already closed and put back to the pool, return directly.
+	// Otherwise the same object would be put into the pool twice,
+	// and a later SetFinalizer on it crashes the whole process.
+	if c.r == nil {
+		return
+	}
 	runtime.SetFinalizer(c, nil)
 	// If error happened in ReleaseBodyStream, the connection may be in abnormal state.
 	// Close it in the callback in order to avoid other unexpected problems.

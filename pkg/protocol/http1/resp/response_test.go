@@ -824,3 +824,23 @@ func TestResponseReadBodyStreamBadTrailer(t *testing.T) {
 	testResponseReadBodyStreamBadTrailer(t, resp, "HTTP/1.1 300 OK\r\nTransfer-Encoding: chunked\r\nContent-Type: bar\r\n\r\n5\r\n56789\r\n0\r\ncontent-type: bar\r\n\r\n")
 	testResponseReadBodyStreamBadTrailer(t, resp, "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nqwer\r\n2\r\nty\r\n0\r\nproxy-connection: bar2\r\n\r\n")
 }
+
+func TestClientRespStreamDoubleClose(t *testing.T) {
+	closeCallbackCalls := 0
+	stream := convertClientRespStream(bytes.NewBufferString("hertz"), func(shouldClose bool) error {
+		closeCallbackCalls++
+		return nil
+	})
+
+	// Close must be idempotent: the second call takes no further effect,
+	// otherwise the same object is put into the pool twice.
+	assert.Nil(t, stream.Close())
+	assert.Nil(t, stream.Close())
+	assert.DeepEqual(t, 1, closeCallbackCalls)
+
+	// Two consecutive Get calls must not return the same pointer,
+	// which would mean one object was enqueued into the pool twice.
+	first := clientRespStreamPool.Get().(*clientRespStream)
+	second := clientRespStreamPool.Get().(*clientRespStream)
+	assert.False(t, first == second)
+}
